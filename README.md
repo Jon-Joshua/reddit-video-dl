@@ -6,12 +6,14 @@ Requirements:
 * Python 3
 * FFmpeg
 
-To use, set the `OUTPUT_DIR` variable to your desired directory.
+To set a permanent output directory, set the `OUTPUT_DIR` variable to your desired directory.
 
-The only variable taken is the Reddit post itself. 
-
-```python reddit-video-dl.py *video-url*```
+Arguments
+```
+  -p POST, --post POST  Reddit video post
+  -o OUT, --out OUT     Output directory.
+```
 
 For example:
 
-````python reddit-video-dl.py https://www.reddit.com/r/trashpandas/comments/7ry91x/so_close_yet_so_far/````
+````python reddit-video-dl.py -p https://www.reddit.com/r/trashpandas/comments/7ry91x/so_close_yet_so_far/````

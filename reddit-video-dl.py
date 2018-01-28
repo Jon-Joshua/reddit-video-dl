@@ -6,13 +6,14 @@ import time
 import shutil
 import subprocess
 import os
+import argparse
 
 USER_AGENT = 'reddit-video-dl'
 REDDIT_DOMAINS = ['reddit.com', 'redd.it']
 OUTPUT_DIR = r''
 
-def main():
-    url = sys.argv[1]
+def main(args):
+    url = args.post
 
     # Check if domain is in list of reddit domains.
     if any(domain.lower() in url.lower() for domain in REDDIT_DOMAINS):
@@ -80,13 +81,15 @@ def cleanup(video_id):
         '{}-video.mp4'.format(video_id)
     ]
 
+    # Check if file exists then delete it.
     for file in files:
         if os.path.isfile(file):
             os.remove(file)
 
 
 def encode(video_id):
-    cmd = 'ffmpeg -y -i {0}-unencoded.mp4 -c copy "{1}{0}.mp4"'.format(video_id, OUTPUT_DIR)
+    output_path = os.path.normpath('{}/{}.mp4'.format(OUTPUT_DIR, video_id))
+    cmd = 'ffmpeg -y -i {0}-unencoded.mp4 -c copy {1}'.format(video_id, output_path)
     subprocess.call(cmd, shell=True)
     print('Encoding Done')
 
@@ -95,9 +98,9 @@ def merge(video_id):
     audio_file = '{}-video.mp4'.format(video_id)
     video_file = '{}-audio.mp4'.format(video_id)
     output_file = '{}.mp4'.format(video_id)
+    output_path = os.path.normpath('{}/{}'.format(OUTPUT_DIR, output_file))
 
-    cmd = 'ffmpeg -y -i {0} -i {1} -c copy "{3}{2}"'.format(
-        audio_file, video_file, output_file, OUTPUT_DIR)
+    cmd = 'ffmpeg -y -i {0} -i {1} -c copy {2}'.format(audio_file, video_file, output_path)
     subprocess.call(cmd, shell=True)
     print('Finished muxing audio and visual.')
 
@@ -114,4 +117,14 @@ def download_file(url, filename):
 
 
 if __name__ == '__main__':
-    main()
+    parse = argparse.ArgumentParser()
+    parse.add_argument('-p', '--post', help='Reddit video post')
+    parse.add_argument('-o', '--out', help='Output directory.')
+    args = parse.parse_args()
+
+    if args.output is not None:
+        OUTPUT_DIR = os.path.normpath(args.output)
+        print(OUTPUT_DIR)
+
+    print(args.video)
+    main(args)
