@@ -7,27 +7,21 @@ import shutil
 import subprocess
 import os
 import argparse
+import pathlib
+import math
 
-USER_AGENT = 'reddit-video-dl'
-REDDIT_DOMAINS = ['reddit.com', 'redd.it']
-OUTPUT_DIR = r''
+config = {
+    'USER_AGENT' : 'reddit-video-dl',
+    'REDDIT_DOMAINS' : ['reddit.com', 'redd.it'],
+    'OUTPUT_DIR' : r''
+}
 
 def main(args):
     url = args.post
 
     # Check if domain is in list of reddit domains.
-    if any(domain.lower() in url.lower() for domain in REDDIT_DOMAINS):
+    if any(domain.lower() in url.lower() for domain in config['REDDIT_DOMAINS']):
         response = request_url(url)
-
-        if response.status_code == 404:
-            print('Invalid URL')
-            return
-
-        # If request is rejected by server try again in 5 seconds.
-        while response.status_code != 200:
-            print('Error: Trying again in 5 seconds.')
-            response = request_url(url)
-            time.sleep(5)
 
         if response.status_code == 200:
             # is_gif: does the video have sound or not.
@@ -39,15 +33,14 @@ def main(args):
             fallback_url = json[0]['data']['children'][0]['data']['media']['reddit_video']['fallback_url']
             video_url = json[0]['data']['children'][0]['data']['url']
 
-            # Regex to split url after .it to get viedo id.
+            # Regex to split url after redd.it to get viedo id.
             video_id = re.search(r'redd.it\/(\w+)', video_url).group(1)
 
-            # Reddit videos are audio and video split so we need to download the parts and mux them together via FFMPEG.
+            # Reddit videos have audio and video split so we need to download the parts and mux them together via FFMPEG.
             video_file = '{}-video.mp4'.format(video_id)
             if is_gif:
                 video_file = '{}-unencoded.mp4'.format(video_id)
 
-            print('Downloading video.')
             download_file(fallback_url, video_file)
 
             if is_gif:
@@ -55,7 +48,7 @@ def main(args):
                 # idk it just works
                 encode(video_id)
             else:
-                print('Downloading audio.')
+                # If video has audio find and download the audio.
                 audio_loc = 'http://v.redd.it/{}/audio'.format(video_id)
                 audio_file = '{}-audio.mp4'.format(video_id)
                 download_file(audio_loc, audio_file)
@@ -63,13 +56,13 @@ def main(args):
                 # Merge audio and video via FFMPEG.
                 merge(video_id)
 
-            # Remove all temp files downloaded.
+            # Remove all temp files.
             cleanup(video_id)
 
             print('Encoded and saved file {}.mp4'.format(video_id))
     else:
-        print('Not a reddit domain.')
-        return
+        print('ERROR: Not a reddit domain, exiting program.')
+        sys.exit()
 
 
 def cleanup(video_id):
@@ -84,36 +77,85 @@ def cleanup(video_id):
     # Check if file exists then delete it.
     for file in files:
         if os.path.isfile(file):
+            print(' - Deleting {}'.format(file))
             os.remove(file)
 
 
 def encode(video_id):
-    output_path = os.path.normpath('{}/{}.mp4'.format(OUTPUT_DIR, video_id))
-    cmd = 'ffmpeg -y -i {0}-unencoded.mp4 -c copy {1}'.format(video_id, output_path)
-    subprocess.call(cmd, shell=True)
-    print('Encoding Done')
+    output_path = os.path.normpath('{}/{}'.format(config['OUTPUT_DIR'], video_id))
+    cmd = 'ffmpeg -y -i {0}-unencoded.mp4 -c copy {1}.mp4'.format(video_id, output_path)
+    run_ffmpeg(cmd)
+    print('Encoding finished.')
 
 
 def merge(video_id):
     audio_file = '{}-video.mp4'.format(video_id)
     video_file = '{}-audio.mp4'.format(video_id)
-    output_file = '{}.mp4'.format(video_id)
-    output_path = os.path.normpath('{}/{}'.format(OUTPUT_DIR, output_file))
-
-    cmd = 'ffmpeg -y -i {0} -i {1} -c copy {2}'.format(audio_file, video_file, output_path)
-    subprocess.call(cmd, shell=True)
+    output_path = os.path.normpath('{}/{}'.format(config['OUTPUT_DIR'], video_id))
+    cmd = 'ffmpeg -y -i {0} -i {1} -c copy {2}.mp4'.format(audio_file, video_file, output_path)
+    run_ffmpeg(cmd)
     print('Finished muxing audio and visual.')
 
 
-def request_url(url):
-    return requests.get(url, headers={'User-agent': USER_AGENT})
+def run_ffmpeg(cmd):
+    print('Running FFmpeg')
+
+    # Supress FFmpeg console output.
+    kwargs = {}
+    if os.name == 'nt':
+        kwargs = { 'creationflags' : 0x08000000 }
+    elif os.name == 'posix':
+        FNULL = open(os.devnull, 'w')
+        kwargs = {
+            'shell' : True,
+            'stdout' : FNULL,
+            'stderr' : subprocess.STDOUT
+        }
+    subprocess.call(cmd, **kwargs)
+
+
+# request_url - Handles requesting of webpages and files with error handling.
+# Arguments:
+#   - url : URL of requested page or file.
+#   - kwargs : Keywork Arguments for request e.g. 'stream=True'
+# Returns:
+#   - response : Request library response.
+def request_url(url, **kwargs):
+    try:
+        response = requests.get(url, headers={'User-agent': config['USER_AGENT']}, **kwargs)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code
+        if status_code == 404:
+            print('ERROR: 404 : "{}", exiting program.'.format(url))
+        elif status_code == 429:
+            print('ERROR: 429 : "{}". Connection rejected by server, exiting program. \n\
+                If this error persits try changing USER_AGENT to something unique'.format(url))
+        sys.exit()
+    except requests.exceptions.Timeout as e:
+        print('ERROR: Request to "{}" has timed out, exiting program.'.format(url))
+        sys.exit()
+    return response
 
 
 def download_file(url, filename):
-    response = requests.get(url, stream=True)
+    response = request_url(url, stream=True)
+    size = int(response.headers['Content-length'])
+    print('Downloading {}, size: {}'.format(filename, format_length(size)))
+
     with open('{}'.format(filename), 'wb') as out_file:
         shutil.copyfileobj(response.raw, out_file)
     del response
+
+
+def format_length(length):
+   if length == 0:
+       return '0B'
+   size_name = ('B', 'KB', 'MB')
+   i = int(math.floor(math.log(length, 1024)))
+   p = math.pow(1024, i)
+   s = round(length / p, 2)
+   return '{} {}'.format(s, size_name[i])
 
 
 if __name__ == '__main__':
@@ -122,9 +164,23 @@ if __name__ == '__main__':
     parse.add_argument('-o', '--out', help='Output directory.')
     args = parse.parse_args()
 
-    if args.output is not None:
-        OUTPUT_DIR = os.path.normpath(args.output)
-        print(OUTPUT_DIR)
+    # Set output directory to be -o if set
+    # Or set the output as the 'working dir/output' if OUTPUT_DIR is empty
+    if args.out is not None:
+        config['OUTPUT_DIR'] = os.path.normpath(args.out)
+    elif config['OUTPUT_DIR'] == '':
+        d_output = os.path.normpath('{}/output'.format(os.getcwd()))
+        config['OUTPUT_DIR'] = d_output
 
-    print(args.video)
+    # Create OUTPUT_DIR if doesn't exist.
+    if not os.path.exists(config['OUTPUT_DIR']):
+        print('Output directory doesn\'t exist.\nCreating "{}".'.format(config['OUTPUT_DIR']))
+        try:
+            pathlib.Path(config['OUTPUT_DIR']).mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            if e.errno == 13:
+                print('ERROR: Access denied while creating directory "{}", exiting program.'.format(config['OUTPUT_DIR']))
+                sys.exit()
+
+    print('Saving file to {}'.format(config['OUTPUT_DIR']))
     main(args)
