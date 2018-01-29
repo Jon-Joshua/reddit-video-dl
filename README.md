@@ -8,9 +8,9 @@ Requirements:
 
 To set a permanent output directory, set the `OUTPUT_DIR` variable to your desired directory.
 
-Arguments
+Arguments:
 ```
-  -p POST, --post POST  Reddit video post
+  -p POST, --post POST  Reddit video post.
   -o OUT, --out OUT     Output directory.
   -v, --video           Download video only.
 ```
