@@ -1,6 +1,6 @@
 ## reddit-video-dl
 
-Reddit Video downloader made with Python and using FFMPEG.
+Reddit Video downloader made with Python and using FFMPEG for Linux and Windows.
 
 Requirements:
 * Python 3

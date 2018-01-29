@@ -10,10 +10,17 @@ import argparse
 import pathlib
 import math
 
+"""
+TODO:
+    - Quality selection from DASH playlist.
+    - Error check before subprocess.
+"""
+
 config = {
     'USER_AGENT' : 'reddit-video-dl',
     'REDDIT_DOMAINS' : ['reddit.com', 'redd.it'],
-    'OUTPUT_DIR' : r''
+    'OUTPUT_DIR' : r'',
+    'FFMPEG_BINARY' : r''
 }
 
 def main(args):
@@ -24,14 +31,19 @@ def main(args):
         response = request_url(url)
 
         if response.status_code == 200:
+            json = request_url('{}.json'.format(response.url)).json()
+            data = json[0]['data']['children'][0]['data']
+            reddit_video = data['media']['reddit_video']
+
             # is_gif: does the video have sound or not.
             # fallback_url: link to video in the largest resolution.
             # video_url: redd.it shortended url to video - redirects to reddit.com post.
+            # playlist_url: DASH playlist file in XML format.
 
-            json = request_url('{}.json'.format(response.url)).json()
-            is_gif = json[0]['data']['children'][0]['data']['media']['reddit_video']['is_gif']
-            fallback_url = json[0]['data']['children'][0]['data']['media']['reddit_video']['fallback_url']
-            video_url = json[0]['data']['children'][0]['data']['url']
+            is_gif = reddit_video['is_gif']
+            fallback_url = reddit_video['fallback_url']
+            video_url = data['url']
+            playlist_url = reddit_video['dash_url']
 
             # Regex to split url after redd.it to get viedo id.
             video_id = re.search(r'redd.it\/(\w+)', video_url).group(1)
@@ -65,62 +77,14 @@ def main(args):
         sys.exit()
 
 
-def cleanup(video_id):
-    print('Removing temporary files.')
-
-    files = [
-        '{}-audio.mp4'.format(video_id),
-        '{}-unencoded.mp4'.format(video_id),
-        '{}-video.mp4'.format(video_id)
-    ]
-
-    # Check if file exists then delete it.
-    for file in files:
-        if os.path.isfile(file):
-            print(' - Deleting {}'.format(file))
-            os.remove(file)
-
-
-def encode(video_id):
-    output_path = os.path.normpath('{}/{}'.format(config['OUTPUT_DIR'], video_id))
-    cmd = 'ffmpeg -y -i {0}-unencoded.mp4 -c copy {1}.mp4'.format(video_id, output_path)
-    run_ffmpeg(cmd)
-    print('Encoding finished.')
-
-
-def merge(video_id):
-    audio_file = '{}-video.mp4'.format(video_id)
-    video_file = '{}-audio.mp4'.format(video_id)
-    output_path = os.path.normpath('{}/{}'.format(config['OUTPUT_DIR'], video_id))
-    cmd = 'ffmpeg -y -i {0} -i {1} -c copy {2}.mp4'.format(audio_file, video_file, output_path)
-    run_ffmpeg(cmd)
-    print('Finished muxing audio and visual.')
-
-
-def run_ffmpeg(cmd):
-    print('Running FFmpeg')
-
-    # Supress FFmpeg console output.
-    kwargs = {}
-    if os.name == 'nt':
-        kwargs = { 'creationflags' : 0x08000000 }
-    elif os.name == 'posix':
-        FNULL = open(os.devnull, 'w')
-        kwargs = {
-            'shell' : True,
-            'stdout' : FNULL,
-            'stderr' : subprocess.STDOUT
-        }
-    subprocess.call(cmd, **kwargs)
-
-
-# request_url - Handles requesting of webpages and files with error handling.
-# Arguments:
-#   - url : URL of requested page or file.
-#   - kwargs : Keywork Arguments for request e.g. 'stream=True'
-# Returns:
-#   - response : Request library response.
 def request_url(url, **kwargs):
+    """request_url - Handles requesting of webpages and files with error handling.
+    Arguments:
+      - url : URL of requested page or file.
+      - kwargs : Keywork Arguments for request e.g. 'stream=True'
+    Returns:
+      - response : Request library response.
+    """
     try:
         response = requests.get(url, headers={'User-agent': config['USER_AGENT']}, **kwargs)
         response.raise_for_status()
@@ -158,11 +122,82 @@ def format_length(length):
    return '{} {}'.format(s, size_name[i])
 
 
+def cleanup(video_id):
+    print('Removing temporary files.')
+
+    files = [
+        '{}-audio.mp4'.format(video_id),
+        '{}-unencoded.mp4'.format(video_id),
+        '{}-video.mp4'.format(video_id)
+    ]
+
+    # Check if file exists then delete it.
+    for file in files:
+        if os.path.isfile(file):
+            print(' - Deleting {}'.format(file))
+            os.remove(file)
+
+
+def encode(video_id):
+    output_path = os.path.normpath('{}/{}'.format(config['OUTPUT_DIR'], video_id))
+    cmd = 'ffmpeg -y -i {0}-unencoded.mp4 -c copy {1}.mp4'.format(video_id, output_path)
+    run_ffmpeg(cmd)
+    print('Encoding finished.')
+
+
+def merge(video_id):
+    audio_file = '{}-video.mp4'.format(video_id)
+    video_file = '{}-audio.mp4'.format(video_id)
+    output_path = os.path.normpath('{}/{}'.format(config['OUTPUT_DIR'], video_id))
+    cmd = 'ffmpeg -y -i {0} -i {1} -c copy {2}.mp4'.format(audio_file, video_file, output_path)
+    run_ffmpeg(cmd)
+
+
+def run_ffmpeg(cmd):
+    proc = run_cmd(cmd)
+
+
+def run_cmd(cmd):
+    # Supress FFmpeg console output.
+    FNULL = open(os.devnull, 'w')
+    kwargs = {
+        'shell' : True,
+        'stdout' : FNULL,
+        'stderr' : subprocess.STDOUT
+    }
+
+    if os.name == 'nt':
+        kwargs = { 'creationflags' : 0x08000000 }
+
+    proc = subprocess.Popen(cmd, **kwargs)
+    proc.communicate()
+    return proc
+
+
+def check_ffmpeg(cmd):
+    try:
+        run_cmd(cmd)
+    except Exception as e:
+        return False
+    else:
+        return True
+
+
 if __name__ == '__main__':
     parse = argparse.ArgumentParser()
     parse.add_argument('-p', '--post', help='Reddit video post')
     parse.add_argument('-o', '--out', help='Output directory.')
     args = parse.parse_args()
+
+    # Check if FFmpeg exists.
+    if config['FFMPEG_BINARY'] == '':
+        if not check_ffmpeg('ffmpeg'):
+            print('ERROR: Can\'t find FFmpeg binary, try setting "FFMPEG_BINARY" in config. Exiting program.')
+            sys.exit()
+    else:
+        if not check_ffmpeg(config['FFMPEG_BINARY']):
+            print('ERROR: Can\'t find FFmpeg binary. Double check "FFMPEG_BINARY". Exiting program.')
+            sys.exit()
 
     # Set output directory to be -o if set
     # Or set the output as the 'working dir/output' if OUTPUT_DIR is empty
@@ -179,7 +214,7 @@ if __name__ == '__main__':
             pathlib.Path(config['OUTPUT_DIR']).mkdir(parents=True, exist_ok=True)
         except OSError as e:
             if e.errno == 13:
-                print('ERROR: Access denied while creating directory "{}", exiting program.'.format(config['OUTPUT_DIR']))
+                print('ERROR: Access denied while creating directory "{}". Exiting program.'.format(config['OUTPUT_DIR']))
                 sys.exit()
 
     print('Saving file to {}'.format(config['OUTPUT_DIR']))
