@@ -190,7 +190,7 @@ def check_ffmpeg(cmd):
 
 if __name__ == '__main__':
     parse = argparse.ArgumentParser()
-    parse.add_argument('-p', '--post', help='Reddit video post')
+    parse.add_argument('-p', '--post', help='Reddit video post.')
     parse.add_argument('-o', '--out', help='Output directory.')
     parse.add_argument('-v', '--video', help='Download video only.', action='store_true')
     args = parse.parse_args()
