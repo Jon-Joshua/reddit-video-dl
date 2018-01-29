@@ -12,6 +12,7 @@ Arguments
 ```
   -p POST, --post POST  Reddit video post
   -o OUT, --out OUT     Output directory.
+  -v, --video           Download video only.
 ```
 
 For example:

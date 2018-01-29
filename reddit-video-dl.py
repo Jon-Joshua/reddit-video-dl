@@ -29,7 +29,6 @@ def main(args):
     # Check if domain is in list of reddit domains.
     if any(domain.lower() in url.lower() for domain in config['REDDIT_DOMAINS']):
         response = request_url(url)
-
         if response.status_code == 200:
             json = request_url('{}.json'.format(response.url)).json()
             data = json[0]['data']['children'][0]['data']
@@ -50,12 +49,12 @@ def main(args):
 
             # Reddit videos have audio and video split so we need to download the parts and mux them together via FFMPEG.
             video_file = '{}-video.mp4'.format(video_id)
-            if is_gif:
+            if is_gif or args.video:
                 video_file = '{}-unencoded.mp4'.format(video_id)
 
             download_file(fallback_url, video_file)
 
-            if is_gif:
+            if is_gif or args.video:
                 # Run the videos through FFMPEG so they are supported by WhatsApp...
                 # idk it just works
                 encode(video_id)
@@ -103,6 +102,11 @@ def request_url(url, **kwargs):
 
 
 def download_file(url, filename):
+    """download_file - Handles downloading of file from http url.http
+    Arguments:
+      - url : URL of requested file.
+      - filename : Name of file being saved.
+    """
     response = request_url(url, stream=True)
     size = int(response.headers['Content-length'])
     print('Downloading {}, size: {}'.format(filename, format_length(size)))
@@ -113,13 +117,14 @@ def download_file(url, filename):
 
 
 def format_length(length):
-   if length == 0:
-       return '0B'
-   size_name = ('B', 'KB', 'MB')
-   i = int(math.floor(math.log(length, 1024)))
-   p = math.pow(1024, i)
-   s = round(length / p, 2)
-   return '{} {}'.format(s, size_name[i])
+    # Formats bytes into KB or MB
+    if length == 0:
+        return '0B'
+    size_name = ('B', 'KB', 'MB')
+    i = int(math.floor(math.log(length, 1024)))
+    p = math.pow(1024, i)
+    s = round(length / p, 2)
+    return '{} {}'.format(s, size_name[i])
 
 
 def cleanup(video_id):
@@ -187,7 +192,13 @@ if __name__ == '__main__':
     parse = argparse.ArgumentParser()
     parse.add_argument('-p', '--post', help='Reddit video post')
     parse.add_argument('-o', '--out', help='Output directory.')
+    parse.add_argument('-v', '--video', help='Download video only.', action='store_true')
     args = parse.parse_args()
+
+    # If no Reddit post given, exit program.
+    if args.post is None:
+        print('ERROR: No Reddit post given. Use argument -h for help. Exiting program.')
+        sys.exit()
 
     # Check if FFmpeg exists.
     if config['FFMPEG_BINARY'] == '':
