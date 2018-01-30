@@ -73,7 +73,7 @@ def main(args):
             print('Encoded and saved file {}.mp4'.format(video_id))
     else:
         print('ERROR: Not a reddit domain, exiting program.')
-        sys.exit()
+        sys.exit(1)
 
 
 def request_url(url, **kwargs):
@@ -94,10 +94,10 @@ def request_url(url, **kwargs):
         elif status_code == 429:
             print('ERROR: 429 : "{}". Connection rejected by server, exiting program. \n\
                 If this error persits try changing USER_AGENT to something unique'.format(url))
-        sys.exit()
+        sys.exit(1)
     except requests.exceptions.Timeout as e:
         print('ERROR: Request to "{}" has timed out, exiting program.'.format(url))
-        sys.exit()
+        sys.exit(1)
     return response
 
 
@@ -111,8 +111,12 @@ def download_file(url, filename):
     size = int(response.headers['Content-length'])
     print('Downloading {}, size: {}'.format(filename, format_length(size)))
 
-    with open('{}'.format(filename), 'wb') as out_file:
-        shutil.copyfileobj(response.raw, out_file)
+    try:
+        with open('{}'.format(filename), 'wb') as out_file:
+            shutil.copyfileobj(response.raw, out_file)
+    except KeyboardInterrupt as e:
+        print('WARNNIG: Download aborted. Exiting program.')
+        sys.exit(1)
     del response
 
 
@@ -198,17 +202,17 @@ if __name__ == '__main__':
     # If no Reddit post given, exit program.
     if args.post is None:
         print('ERROR: No Reddit post given. Use argument -h for help. Exiting program.')
-        sys.exit()
+        sys.exit(1)
 
     # Check if FFmpeg exists.
     if config['FFMPEG_BINARY'] == '':
         if not check_ffmpeg('ffmpeg'):
             print('ERROR: Can\'t find FFmpeg binary, try setting "FFMPEG_BINARY" in config. Exiting program.')
-            sys.exit()
+            sys.exit(1)
     else:
         if not check_ffmpeg(config['FFMPEG_BINARY']):
             print('ERROR: Can\'t find FFmpeg binary. Double check "FFMPEG_BINARY". Exiting program.')
-            sys.exit()
+            sys.exit(1)
 
     # Set output directory to be -o if set
     # Or set the output as the 'working dir/output' if OUTPUT_DIR is empty
@@ -226,7 +230,7 @@ if __name__ == '__main__':
         except OSError as e:
             if e.errno == 13:
                 print('ERROR: Access denied while creating directory "{}". Exiting program.'.format(config['OUTPUT_DIR']))
-                sys.exit()
+                sys.exit(1)
 
     print('Saving file to {}'.format(config['OUTPUT_DIR']))
     main(args)
